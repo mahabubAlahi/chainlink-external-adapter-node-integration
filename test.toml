@@ -1,0 +1,31 @@
+type = "directrequest"
+schemaVersion = 1
+name = "test (TOML)"
+maxTaskDuration = "0s"
+contractAddress = "0x207D8B6f48598287497Bd3b17BE4082daF66b445"
+minIncomingConfirmations = 0
+observationSource = """
+       decode_log   [type="ethabidecodelog"
+                  abi="OracleRequest(bytes32 indexed specId, address requester, bytes32 requestId, uint256 payment, address callbackAddr, bytes4 callbackFunctionId, uint256 cancelExpiration, uint256 dataVersion, bytes data)"
+                  data="$(jobRun.logData)"
+                  topics="$(jobRun.logTopics)"]
+    decode_cbor  [type="cborparse" data="$(decode_log.data)"]
+    decode_log -> decode_cbor
+    decode_cbor -> testFast
+    testFast  [type="bridge" name="testscan" requestData="{\\"data\\": {\\"city\\":$(decode_cbor.city) }}"]
+    getTestFast    [type=jsonparse path="data,result"]
+    test_multiply [type="multiply" input="$(getTestFast)", times="10"]
+
+    testFast -> getTestFast -> test_multiply
+    test_multiply -> encode_data
+    
+    encode_data [type=ethabiencode abi="(bytes32 _requestId, uint256 _result)"
+            data="{\\"_requestId\\": $(decode_log.requestId),\\"_result\\": $(test_multiply)}"]
+
+    encode_tx [type=ethabiencode
+            abi="fulfillOracleRequest2(bytes32 requestId, uint256 payment, address callbackAddress, bytes4 callbackFunctionId, uint256 expiration, bytes calldata data)"
+            data="{\\"requestId\\": $(decode_log.requestId), \\"payment\\": $(decode_log.payment), \\"callbackAddress\\": $(decode_log.callbackAddr), \\"callbackFunctionId\\": $(decode_log.callbackFunctionId), \\"expiration\\": $(decode_log.cancelExpiration), \\"data\\": $(encode_data)}"]
+
+    submit_tx [type=ethtx to="0x207D8B6f48598287497Bd3b17BE4082daF66b445" data="$(encode_tx)"]
+    encode_data -> encode_tx -> submit_tx
+"""
